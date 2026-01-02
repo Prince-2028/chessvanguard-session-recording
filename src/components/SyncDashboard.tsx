@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, CheckCircle, XCircle, Clock } from 'lucide-react';
 import { showSuccess, showError } from '@/utils/toast';
+import axios from 'axios';
 
 interface SyncStatus {
   status: 'Idle' | 'Running' | 'Completed' | 'Error';
@@ -26,13 +27,20 @@ const SyncDashboard: React.FC = () => {
 
   const fetchStatus = async () => {
     try {
-      const response = await fetch('/api/status');
-      if (response.ok) {
-        const data: SyncStatus = await response.json();
-        setStatus(data);
-      }
+      const response = await axios.get<SyncStatus>('/api/status');
+      setStatus(response.data);
     } catch (error) {
       console.error("Failed to fetch sync status:", error);
+      // If the server is completely unreachable, we keep the last known status 
+      // but log the error. We don't want to overwrite a 'Completed' status with 'Error' 
+      // just because one poll failed.
+      if (axios.isAxiosError(error) && !error.response) {
+        // This is a true network error (server unreachable)
+        console.warn("Server unreachable. Keeping current status.");
+      } else if (axios.isAxiosError(error) && error.response) {
+        // Server responded with an error status (4xx, 5xx)
+        console.error("Server responded with error status:", error.response.status);
+      }
     }
   };
 
@@ -51,20 +59,26 @@ const SyncDashboard: React.FC = () => {
     setStatus(prev => ({ ...prev, status: 'Running', error: null }));
 
     try {
-      const response = await fetch('/api/sync', {
-        method: 'POST',
-      });
+      const response = await axios.post('/api/sync');
 
-      if (response.ok) {
+      if (response.status === 200) {
         showSuccess("Sync process initiated on the server.");
-      } else {
-        const errorData = await response.json();
-        showError(`Failed to start sync: ${errorData.error || 'Server error'}`);
-        setStatus(prev => ({ ...prev, status: 'Error', error: errorData.error || 'Failed to start sync' }));
+        // Update status immediately based on server response if available
+        if (response.data.status) {
+            setStatus(response.data.status);
+        }
       }
     } catch (error) {
-      showError("Network error: Could not connect to the backend server.");
-      setStatus(prev => ({ ...prev, status: 'Error', error: 'Network error' }));
+      let errorMessage = "Network error: Could not connect to the backend server.";
+      if (axios.isAxiosError(error) && error.response) {
+        const errorData = error.response.data;
+        errorMessage = `Failed to start sync: ${errorData.error || 'Server error'}`;
+        showError(errorMessage);
+      } else {
+        showError(errorMessage);
+      }
+      
+      setStatus(prev => ({ ...prev, status: 'Error', error: errorMessage }));
     } finally {
       setIsManualSyncing(false);
       // Status polling will pick up the final result
