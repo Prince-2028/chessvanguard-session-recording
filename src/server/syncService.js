@@ -1,7 +1,12 @@
-const axios = require('axios');
-const { Storage } = require('@google-cloud/storage');
-const fs = require('fs');
-const path = require('path');
+import axios from 'axios';
+import { Storage } from '@google-cloud/storage';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// Helper to get __dirname equivalent in ES Modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // --- Configuration ---
 const ZOHO_CLIENT_ID = process.env.ZOHO_CLIENT_ID;
@@ -238,7 +243,7 @@ function getSyncStatus() {
     return lastRunStatus;
 }
 
-module.exports = {
+export {
     runSync,
     getSyncStatus,
 };

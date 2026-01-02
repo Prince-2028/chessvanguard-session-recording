@@ -1,8 +1,16 @@
-const express = require('express');
-const cron = require('node-cron');
-const path = require('path');
-const { runSync, getSyncStatus } = require('./src/server/syncService');
-require('dotenv').config(); // Load environment variables from .env file
+import express from 'express';
+import cron from 'node-cron';
+import path from 'path';
+import { runSync, getSyncStatus } from './src/server/syncService.js';
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+
+// Load environment variables from .env file
+dotenv.config(); 
+
+// Helper to get __dirname equivalent in ES Modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
