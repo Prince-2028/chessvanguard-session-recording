@@ -13,7 +13,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+// Use 8080 as the default port to match common development environments
+const PORT = process.env.PORT || 8080; 
+
+// Middleware to parse JSON bodies (standard for API endpoints)
+app.use(express.json());
 
 // Serve static files from the Vite build output
 app.use(express.static(path.join(__dirname, 'dist')));
