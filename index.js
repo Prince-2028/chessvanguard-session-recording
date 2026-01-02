@@ -31,9 +31,9 @@ let storage = null;
 let bucket = null;
 let uploadedRecordings = {};
 
-function initGCP() {
+async function initGCP() {
     if (!GCP_BUCKET_NAME || !GCP_SERVICE_ACCOUNT_KEY) {
-        console.error("❌ [GCP] Missing GCP_BUCKET_NAME or GCP_SERVICE_ACCOUNT_KEY.");
+        console.error("❌ [GCP] Missing GCP_BUCKET_NAME or GCP_SERVICE_ACCOUNT_KEY in environment.");
         return false;
     }
     try {
@@ -51,8 +51,18 @@ function initGCP() {
             credentials,
             projectId: credentials.project_id,
         });
-        bucket = storage.bucket(GCP_BUCKET_NAME);
-        console.log(`✅ [GCP] Storage initialized for bucket: ${GCP_BUCKET_NAME}`);
+        
+        const bucketName = GCP_BUCKET_NAME.trim();
+        bucket = storage.bucket(bucketName);
+        
+        // Verify bucket exists
+        const [exists] = await bucket.exists();
+        if (!exists) {
+            console.error(`❌ [GCP] Bucket "${bucketName}" not found in project "${credentials.project_id}".`);
+            return false;
+        }
+
+        console.log(`✅ [GCP] Storage initialized. Target bucket: ${bucketName}`);
         return true;
     } catch (e) {
         console.error(`❌ [GCP] Failed to initialize: ${e.message}`);
@@ -120,7 +130,6 @@ async function streamToGCS(recording, token) {
     const { recordingId, downloadUrl, topic, status } = recording;
     const dest = `${recordingId}.mp4`;
 
-    // Only download if status is UPLOADED
     if (status !== 'UPLOADED') {
         console.log(`[Skip] ${topic} (${recordingId}): Status is '${status}', not 'UPLOADED'.`);
         return false;
@@ -161,7 +170,12 @@ async function streamToGCS(recording, token) {
 // --- Main Runner ---
 async function runSync() {
     console.log(`\n--- Sync Session Started: ${new Date().toLocaleString()} ---`);
-    if (!initGCP()) return;
+    const gcpReady = await initGCP();
+    if (!gcpReady) {
+        console.error("Aborting sync due to GCP initialization failure.");
+        process.exit(1);
+    }
+    
     loadStatus();
 
     try {
