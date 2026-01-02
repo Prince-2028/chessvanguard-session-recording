@@ -55,7 +55,6 @@ async function initGCP() {
         const bucketName = GCP_BUCKET_NAME.trim();
         bucket = storage.bucket(bucketName);
         
-        // Verify bucket exists
         const [exists] = await bucket.exists();
         if (!exists) {
             console.error(`❌ [GCP] Bucket "${bucketName}" not found in project "${credentials.project_id}".`);
@@ -89,7 +88,6 @@ function saveStatus(recordingId) {
 // --- Zoho Functions ---
 async function getAccessToken() {
     const url = `${ZOHO_ACCOUNTS_URL}/oauth/v2/token`;
-    console.log(`[Zoho] Refreshing access token from: ${url}`);
     try {
         const response = await axios.post(url, null, {
             params: {
@@ -104,7 +102,7 @@ async function getAccessToken() {
         }
         return response.data.access_token;
     } catch (e) {
-        console.error(`❌ [Zoho Auth] Failed at ${url}: ${e.message}`);
+        console.error(`❌ [Zoho Auth] Failed: ${e.message}`);
         throw e;
     }
 }
@@ -114,14 +112,13 @@ async function fetchRecordings(token) {
         throw new Error("Missing ZOHO_ZSOID in environment variables.");
     }
     const url = `${ZOHO_MEETING_API_URL}/${ZOHO_ZSOID}/recordings.json`;
-    console.log(`[Zoho] Fetching recordings from: ${url}`);
     try {
         const response = await axios.get(url, {
             headers: { Authorization: `Zoho-oauthtoken ${token}` }
         });
         return response.data.recordings || [];
     } catch (e) {
-        console.error(`❌ [Zoho API] Failed to fetch recordings from ${url}: ${e.message}`);
+        console.error(`❌ [Zoho API] Failed to fetch recordings: ${e.message}`);
         throw e;
     }
 }
@@ -140,7 +137,7 @@ async function streamToGCS(recording, token) {
         return false;
     }
 
-    console.log(`[Sync] 🚀 Starting upload for: ${topic} (${recordingId})`);
+    console.log(`[Sync] 🚀 Starting upload to GCP: ${topic} (${recordingId})`);
     try {
         const response = await axios({
             method: 'get',
@@ -159,10 +156,26 @@ async function streamToGCS(recording, token) {
         });
 
         await pipeline(response.data, writeStream);
-        console.log(`[Sync] ✅ Successfully uploaded: ${topic} (${recordingId})`);
+        console.log(`[Sync] ✅ Successfully uploaded to GCP: ${topic} (${recordingId})`);
         return true;
     } catch (e) {
-        console.error(`❌ [Sync Error] ${recordingId} upload failed: ${e.message}`);
+        console.error(`❌ [Sync Error] GCP upload failed for ${recordingId}: ${e.message}`);
+        return false;
+    }
+}
+
+async function deleteFromZoho(recordingId, token) {
+    // URL pattern as provided: https://meeting.zoho.in/api/v2/{zsoid}/recordings/{recordingId}.json
+    const url = `https://meeting.zoho.in/api/v2/${ZOHO_ZSOID}/recordings/${recordingId}.json`;
+    console.log(`[Cleanup] 🗑️ Deleting from Zoho: ${recordingId}`);
+    try {
+        await axios.delete(url, {
+            headers: { Authorization: `Zoho-oauthtoken ${token}` }
+        });
+        console.log(`[Cleanup] ✅ Successfully deleted from Zoho: ${recordingId}`);
+        return true;
+    } catch (e) {
+        console.error(`❌ [Cleanup Error] Zoho deletion failed for ${recordingId}: ${e.message}`);
         return false;
     }
 }
@@ -195,11 +208,16 @@ async function runSync() {
             
             const success = await streamToGCS(rec, token);
             if (success) {
+                // Save to local status first to ensure we don't try to re-upload if deletion fails
                 saveStatus(recordingId);
+                
+                // Delete from Zoho now that it's safe on GCP
+                await deleteFromZoho(recordingId, token);
+                
                 count++;
             }
         }
-        console.log(`\n--- Sync Session Finished. ${count} new recordings uploaded. ---`);
+        console.log(`\n--- Sync Session Finished. ${count} recordings processed. ---`);
     } catch (e) {
         console.error(`\n--- Sync Session Aborted: ${e.message} ---`);
         process.exit(1);
