@@ -3,6 +3,7 @@ import { Storage } from '@google-cloud/storage';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { pipeline } from 'stream/promises'; // Added for robust streaming
 
 // Helper to get __dirname equivalent in ES Modules
 const __filename = fileURLToPath(import.meta.url);
@@ -102,7 +103,7 @@ async function fetchRecordings(accessToken) {
 
 // --- Streaming Logic ---
 
-async function streamToGCS(recording) {
+async function streamToGCS(recording, accessToken) {
     const meetingId = recording.meetingId;
     const downloadUrl = recording.download_url;
     const destination = `${meetingId}.mp4`;
@@ -120,11 +121,14 @@ async function streamToGCS(recording) {
     console.log(`[GCS] Starting stream upload for ${meetingId} to ${destination}...`);
 
     try {
-        // 1. Get the video stream from Zoho
+        // 1. Get the video stream from Zoho, ensuring the access token is used for protected download URLs
         const response = await axios({
             method: 'get',
             url: downloadUrl,
             responseType: 'stream',
+            headers: {
+                Authorization: `Zoho-oauthtoken ${accessToken}`
+            }
         });
 
         // 2. Create a write stream to GCS
@@ -133,19 +137,11 @@ async function streamToGCS(recording) {
             metadata: {
                 contentType: 'video/mp4',
             },
+            resumable: true, // Recommended for large files
         });
 
-        // 3. Pipe the Zoho stream directly to the GCS stream
-        response.data.pipe(gcsStream);
-
-        // Wait for the upload to finish
-        await new Promise((resolve, reject) => {
-            gcsStream.on('error', (err) => {
-                console.error(`[GCS] Upload stream error for ${meetingId}:`, err.message);
-                reject(err);
-            });
-            gcsStream.on('finish', resolve);
-        });
+        // 3. Pipe the Zoho stream directly to the GCS stream using pipeline for robust error handling
+        await pipeline(response.data, gcsStream);
 
         console.log(`[GCS] Upload successful for ${meetingId}.`);
         return true;
@@ -211,7 +207,8 @@ async function runSync() {
                 continue;
             }
 
-            const success = await streamToGCS(recording);
+            // Pass the accessToken to streamToGCS
+            const success = await streamToGCS(recording, accessToken);
 
             if (success) {
                 updateStatus(meetingId);
