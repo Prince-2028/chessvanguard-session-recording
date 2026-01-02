@@ -18,7 +18,8 @@ const {
     ZOHO_CLIENT_SECRET,
     ZOHO_REFRESH_TOKEN,
     ZOHO_ACCOUNTS_URL = 'https://accounts.zoho.in',
-    ZOHO_MEETING_API_URL = 'https://meeting.zoho.in/api/v1',
+    ZOHO_MEETING_API_URL = 'https://meeting.zoho.in/meeting/api/v2',
+    ZOHO_ZSOID,
     GCP_BUCKET_NAME,
     GCP_SERVICE_ACCOUNT_KEY
 } = process.env;
@@ -99,14 +100,18 @@ async function getAccessToken() {
 }
 
 async function fetchRecordings(token) {
-    const url = `${ZOHO_MEETING_API_URL}/recordings`;
+    if (!ZOHO_ZSOID) {
+        throw new Error("Missing ZOHO_ZSOID in environment variables.");
+    }
+    // URL Format: https://meeting.zoho.in/meeting/api/v2/{zsoid}/recordings.json
+    const url = `${ZOHO_MEETING_API_URL}/${ZOHO_ZSOID}/recordings.json`;
     console.log(`[Zoho] Fetching recordings from: ${url}`);
     try {
         const response = await axios.get(url, {
-            headers: { Authorization: `Zoho-oauthtoken ${token}` },
-            params: { page: 1, per_page: 50 }
+            headers: { Authorization: `Zoho-oauthtoken ${token}` }
         });
-        return response.data.data || [];
+        // v2 often returns { recordings: [...] } or { data: [...] }
+        return response.data.recordings || response.data.data || [];
     } catch (e) {
         console.error(`❌ [Zoho API] Failed to fetch recordings from ${url}: ${e.message}`);
         throw e;
@@ -114,13 +119,14 @@ async function fetchRecordings(token) {
 }
 
 async function streamToGCS(recording, token) {
-    const meetingId = recording.meetingId;
-    const downloadUrl = recording.download_url;
-    const topic = recording.topic || 'Unknown Topic';
+    // Note: Property names might differ between v1 and v2, adjust if necessary
+    const meetingId = recording.meetingId || recording.id;
+    const downloadUrl = recording.download_url || recording.video_download_url;
+    const topic = recording.topic || recording.meeting_topic || 'Unknown Topic';
     const dest = `${meetingId}.mp4`;
 
-    if (!downloadUrl || downloadUrl.includes('.m3u8')) {
-        console.warn(`[Skip] ${meetingId} (${topic}): No direct download link available.`);
+    if (!downloadUrl) {
+        console.warn(`[Skip] ${meetingId} (${topic}): No download link available.`);
         return false;
     }
 
@@ -165,21 +171,21 @@ async function runSync() {
         
         let count = 0;
         for (const rec of recordings) {
-            if (uploadedRecordings[rec.meetingId]) {
-                console.log(`[Status] Already synced: ${rec.topic} (${rec.meetingId})`);
+            const meetingId = rec.meetingId || rec.id;
+            if (uploadedRecordings[meetingId]) {
+                console.log(`[Status] Already synced: ${rec.topic || rec.meeting_topic} (${meetingId})`);
                 continue;
             }
             
             const success = await streamToGCS(rec, token);
             if (success) {
-                saveStatus(rec.meetingId);
+                saveStatus(meetingId);
                 count++;
             }
         }
         console.log(`\n--- Sync Session Finished. ${count} new recordings uploaded. ---`);
     } catch (e) {
         console.error(`\n--- Sync Session Aborted: ${e.message} ---`);
-        console.error(`Tip: If you got a 404, check if your ZOHO_ACCOUNTS_URL or ZOHO_MEETING_API_URL are correct for your region (e.g., .eu, .in, .com.au).`);
         process.exit(1);
     }
 }
