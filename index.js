@@ -124,8 +124,8 @@ async function fetchRecordings(token) {
 }
 
 async function streamToGCS(recording, token) {
-    const { recordingId, downloadUrl, topic, status } = recording;
-    const dest = `${recordingId}.mp4`;
+    const { recordingId, downloadUrl, topic, status, meetingKey, sTime } = recording;
+    const dest = `${meetingKey}/${sTime}.mp4`;
 
     if (status !== 'UPLOADED') {
         console.log(`[Skip] ${topic} (${recordingId}): Status is '${status}', not 'UPLOADED'.`);
@@ -212,7 +212,7 @@ async function runSync() {
                 saveStatus(recordingId);
                 
                 // Delete from Zoho using the Zoho API URL provided
-                 await deleteFromZoho(recordingId, token);
+                //  await deleteFromZoho(recordingId, token);
                 
                 count++;
             }
