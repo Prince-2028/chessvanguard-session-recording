@@ -37,7 +37,6 @@ function initGCP() {
     }
     try {
         let credentials;
-        // Check if it's a file path or a JSON string
         if (GCP_SERVICE_ACCOUNT_KEY.endsWith('.json') || fs.existsSync(GCP_SERVICE_ACCOUNT_KEY)) {
             const keyPath = path.isAbsolute(GCP_SERVICE_ACCOUNT_KEY) 
                 ? GCP_SERVICE_ACCOUNT_KEY 
@@ -64,7 +63,7 @@ function loadStatus() {
     if (fs.existsSync(STATUS_FILE)) {
         try {
             uploadedRecordings = JSON.parse(fs.readFileSync(STATUS_FILE, 'utf8'));
-            console.log(`[Status] Loaded ${Object.keys(uploadedRecordings).length} tracked recordings.`);
+            console.log(`[Status] Loaded ${Object.keys(uploadedRecordings).length} previously synced recordings.`);
         } catch (e) {
             uploadedRecordings = {};
         }
@@ -78,38 +77,54 @@ function saveStatus(meetingId) {
 
 // --- Zoho Functions ---
 async function getAccessToken() {
-    console.log("[Zoho] Refreshing access token...");
-    const response = await axios.post(`${ZOHO_ACCOUNTS_URL}/oauth/v2/token`, null, {
-        params: {
-            refresh_token: ZOHO_REFRESH_TOKEN,
-            client_id: ZOHO_CLIENT_ID,
-            client_secret: ZOHO_CLIENT_SECRET,
-            grant_type: 'refresh_token',
+    const url = `${ZOHO_ACCOUNTS_URL}/oauth/v2/token`;
+    console.log(`[Zoho] Refreshing access token from: ${url}`);
+    try {
+        const response = await axios.post(url, null, {
+            params: {
+                refresh_token: ZOHO_REFRESH_TOKEN,
+                client_id: ZOHO_CLIENT_ID,
+                client_secret: ZOHO_CLIENT_SECRET,
+                grant_type: 'refresh_token',
+            }
+        });
+        if (response.data.error) {
+            throw new Error(`Zoho Auth Error: ${response.data.error}`);
         }
-    });
-    return response.data.access_token;
+        return response.data.access_token;
+    } catch (e) {
+        console.error(`❌ [Zoho Auth] Failed at ${url}: ${e.message}`);
+        throw e;
+    }
 }
 
 async function fetchRecordings(token) {
-    console.log("[Zoho] Fetching recordings...");
-    const response = await axios.get(`${ZOHO_MEETING_API_URL}/recordings`, {
-        headers: { Authorization: `Zoho-oauthtoken ${token}` },
-        params: { page: 1, per_page: 50 }
-    });
-    return response.data.data || [];
+    const url = `${ZOHO_MEETING_API_URL}/recordings`;
+    console.log(`[Zoho] Fetching recordings from: ${url}`);
+    try {
+        const response = await axios.get(url, {
+            headers: { Authorization: `Zoho-oauthtoken ${token}` },
+            params: { page: 1, per_page: 50 }
+        });
+        return response.data.data || [];
+    } catch (e) {
+        console.error(`❌ [Zoho API] Failed to fetch recordings from ${url}: ${e.message}`);
+        throw e;
+    }
 }
 
 async function streamToGCS(recording, token) {
     const meetingId = recording.meetingId;
     const downloadUrl = recording.download_url;
+    const topic = recording.topic || 'Unknown Topic';
     const dest = `${meetingId}.mp4`;
 
     if (!downloadUrl || downloadUrl.includes('.m3u8')) {
-        console.warn(`[Skip] ${meetingId}: No direct download link available.`);
+        console.warn(`[Skip] ${meetingId} (${topic}): No direct download link available.`);
         return false;
     }
 
-    console.log(`[Sync] Uploading ${meetingId} -> gs://${GCP_BUCKET_NAME}/${dest}...`);
+    console.log(`[Sync] 🚀 Starting upload for: ${topic} (${meetingId})`);
     try {
         const response = await axios({
             method: 'get',
@@ -120,21 +135,25 @@ async function streamToGCS(recording, token) {
 
         const file = bucket.file(dest);
         const writeStream = file.createWriteStream({
-            metadata: { contentType: 'video/mp4' },
+            metadata: { 
+                contentType: 'video/mp4',
+                metadata: { meetingId, topic }
+            },
             resumable: true
         });
 
         await pipeline(response.data, writeStream);
+        console.log(`[Sync] ✅ Successfully uploaded: ${topic} (${meetingId})`);
         return true;
     } catch (e) {
-        console.error(`[Error] ${meetingId} upload failed: ${e.message}`);
+        console.error(`❌ [Sync Error] ${meetingId} upload failed: ${e.message}`);
         return false;
     }
 }
 
 // --- Main Runner ---
 async function runSync() {
-    console.log(`\n--- Sync Started: ${new Date().toLocaleString()} ---`);
+    console.log(`\n--- Sync Session Started: ${new Date().toLocaleString()} ---`);
     if (!initGCP()) return;
     loadStatus();
 
@@ -142,9 +161,14 @@ async function runSync() {
         const token = await getAccessToken();
         const recordings = await fetchRecordings(token);
         
+        console.log(`[Zoho] Found ${recordings.length} total recordings.`);
+        
         let count = 0;
         for (const rec of recordings) {
-            if (uploadedRecordings[rec.meetingId]) continue;
+            if (uploadedRecordings[rec.meetingId]) {
+                console.log(`[Status] Already synced: ${rec.topic} (${rec.meetingId})`);
+                continue;
+            }
             
             const success = await streamToGCS(rec, token);
             if (success) {
@@ -152,9 +176,10 @@ async function runSync() {
                 count++;
             }
         }
-        console.log(`--- Sync Finished. Uploaded ${count} new recordings. ---`);
+        console.log(`\n--- Sync Session Finished. ${count} new recordings uploaded. ---`);
     } catch (e) {
-        console.error(`--- Sync Aborted: ${e.message} ---`);
+        console.error(`\n--- Sync Session Aborted: ${e.message} ---`);
+        console.error(`Tip: If you got a 404, check if your ZOHO_ACCOUNTS_URL or ZOHO_MEETING_API_URL are correct for your region (e.g., .eu, .in, .com.au).`);
         process.exit(1);
     }
 }
