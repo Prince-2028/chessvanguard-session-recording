@@ -21,19 +21,18 @@ app.use(express.json());
 // --- API Endpoints (Must be defined before static serving/catch-all) ---
 
 // API Endpoint to manually trigger sync
-app.post('/api/sync', async (req, res) => {
+app.post('/api/sync', (req, res) => {
     console.log("Manual sync triggered via API.");
-    try {
-        // Run sync asynchronously and return immediate status
-        runSync(); 
-        res.json({ 
-            message: "Sync process started successfully. Check logs for details.",
-            status: getSyncStatus()
-        });
-    } catch (error) {
-        console.error("Error starting manual sync:", error.message);
-        res.status(500).json({ error: "Failed to start sync process." });
-    }
+    
+    // Run sync asynchronously. Errors are handled internally by runSync 
+    // and reflected in getSyncStatus(). We do not await it here.
+    runSync(); 
+    
+    // Return immediate status (which might contain the initial configuration error)
+    res.json({ 
+        message: "Sync process started successfully. Check logs for details.",
+        status: getSyncStatus()
+    });
 });
 
 // API Endpoint to get current sync status
