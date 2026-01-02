@@ -165,7 +165,7 @@ async function streamToGCS(recording, token) {
 }
 
 async function deleteFromZoho(recordingId, token) {
-    // URL pattern as provided: https://meeting.zoho.in/api/v2/{zsoid}/recordings/{recordingId}.json
+    // Exact URL pattern provided: https://meeting.zoho.in/api/v2/{zsoid}/recordings/{recordingId}.json
     const url = `https://meeting.zoho.in/api/v2/${ZOHO_ZSOID}/recordings/${recordingId}.json`;
     console.log(`[Cleanup] 🗑️ Deleting from Zoho: ${recordingId}`);
     try {
@@ -211,7 +211,7 @@ async function runSync() {
                 // Save to local status first to ensure we don't try to re-upload if deletion fails
                 saveStatus(recordingId);
                 
-                // Delete from Zoho now that it's safe on GCP
+                // Delete from Zoho using the Zoho API URL provided
                 await deleteFromZoho(recordingId, token);
                 
                 count++;
