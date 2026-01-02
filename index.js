@@ -17,8 +17,8 @@ const {
     ZOHO_CLIENT_ID,
     ZOHO_CLIENT_SECRET,
     ZOHO_REFRESH_TOKEN,
-    ZOHO_ACCOUNTS_URL = 'https://accounts.zoho.com',
-    ZOHO_MEETING_API_URL = 'https://meeting.zoho.com/api/v1',
+    ZOHO_ACCOUNTS_URL = 'https://accounts.zoho.in',
+    ZOHO_MEETING_API_URL = 'https://meeting.zoho.in/api/v1',
     GCP_BUCKET_NAME,
     GCP_SERVICE_ACCOUNT_KEY
 } = process.env;
