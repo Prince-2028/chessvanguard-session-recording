@@ -5,7 +5,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { pipeline } from 'stream/promises';
 import dotenv from 'dotenv';
-import cron from 'node-cron';
 
 // Load environment variables
 dotenv.config();
@@ -21,8 +20,7 @@ const {
     ZOHO_ACCOUNTS_URL = 'https://accounts.zoho.com',
     ZOHO_MEETING_API_URL = 'https://meeting.zoho.com/api/v1',
     GCP_BUCKET_NAME,
-    GCP_SERVICE_ACCOUNT_KEY,
-    SYNC_CRON_SCHEDULE = '*/30 * * * *' // Default: every 30 mins
+    GCP_SERVICE_ACCOUNT_KEY
 } = process.env;
 
 const STATUS_FILE = path.join(__dirname, 'status.json');
@@ -147,13 +145,9 @@ async function runSync() {
         console.log(`--- Sync Finished. Uploaded ${count} new recordings. ---`);
     } catch (e) {
         console.error(`--- Sync Aborted: ${e.message} ---`);
+        process.exit(1);
     }
 }
 
-// Schedule Job
-cron.schedule(SYNC_CRON_SCHEDULE, () => {
-    runSync();
-});
-
-// Run immediately on start
+// Run immediately
 runSync();
