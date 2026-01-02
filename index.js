@@ -71,8 +71,8 @@ function loadStatus() {
     }
 }
 
-function saveStatus(meetingId) {
-    uploadedRecordings[meetingId] = new Date().toISOString();
+function saveStatus(recordingId) {
+    uploadedRecordings[recordingId] = new Date().toISOString();
     fs.writeFileSync(STATUS_FILE, JSON.stringify(uploadedRecordings, null, 2));
 }
 
@@ -103,15 +103,13 @@ async function fetchRecordings(token) {
     if (!ZOHO_ZSOID) {
         throw new Error("Missing ZOHO_ZSOID in environment variables.");
     }
-    // URL Format: https://meeting.zoho.in/meeting/api/v2/{zsoid}/recordings.json
     const url = `${ZOHO_MEETING_API_URL}/${ZOHO_ZSOID}/recordings.json`;
     console.log(`[Zoho] Fetching recordings from: ${url}`);
     try {
         const response = await axios.get(url, {
             headers: { Authorization: `Zoho-oauthtoken ${token}` }
         });
-        // v2 often returns { recordings: [...] } or { data: [...] }
-        return response.data.recordings || response.data.data || [];
+        return response.data.recordings || [];
     } catch (e) {
         console.error(`❌ [Zoho API] Failed to fetch recordings from ${url}: ${e.message}`);
         throw e;
@@ -119,18 +117,21 @@ async function fetchRecordings(token) {
 }
 
 async function streamToGCS(recording, token) {
-    // Note: Property names might differ between v1 and v2, adjust if necessary
-    const meetingId = recording.meetingId || recording.id;
-    const downloadUrl = recording.download_url || recording.video_download_url;
-    const topic = recording.topic || recording.meeting_topic || 'Unknown Topic';
-    const dest = `${meetingId}.mp4`;
+    const { recordingId, downloadUrl, topic, status } = recording;
+    const dest = `${recordingId}.mp4`;
 
-    if (!downloadUrl) {
-        console.warn(`[Skip] ${meetingId} (${topic}): No download link available.`);
+    // Only download if status is UPLOADED
+    if (status !== 'UPLOADED') {
+        console.log(`[Skip] ${topic} (${recordingId}): Status is '${status}', not 'UPLOADED'.`);
         return false;
     }
 
-    console.log(`[Sync] 🚀 Starting upload for: ${topic} (${meetingId})`);
+    if (!downloadUrl) {
+        console.warn(`[Skip] ${topic} (${recordingId}): No downloadUrl found.`);
+        return false;
+    }
+
+    console.log(`[Sync] 🚀 Starting upload for: ${topic} (${recordingId})`);
     try {
         const response = await axios({
             method: 'get',
@@ -143,16 +144,16 @@ async function streamToGCS(recording, token) {
         const writeStream = file.createWriteStream({
             metadata: { 
                 contentType: 'video/mp4',
-                metadata: { meetingId, topic }
+                metadata: { recordingId, topic, zohoStatus: status }
             },
             resumable: true
         });
 
         await pipeline(response.data, writeStream);
-        console.log(`[Sync] ✅ Successfully uploaded: ${topic} (${meetingId})`);
+        console.log(`[Sync] ✅ Successfully uploaded: ${topic} (${recordingId})`);
         return true;
     } catch (e) {
-        console.error(`❌ [Sync Error] ${meetingId} upload failed: ${e.message}`);
+        console.error(`❌ [Sync Error] ${recordingId} upload failed: ${e.message}`);
         return false;
     }
 }
@@ -171,15 +172,16 @@ async function runSync() {
         
         let count = 0;
         for (const rec of recordings) {
-            const meetingId = rec.meetingId || rec.id;
-            if (uploadedRecordings[meetingId]) {
-                console.log(`[Status] Already synced: ${rec.topic || rec.meeting_topic} (${meetingId})`);
+            const { recordingId, topic } = rec;
+            
+            if (uploadedRecordings[recordingId]) {
+                console.log(`[Status] Already synced: ${topic} (${recordingId})`);
                 continue;
             }
             
             const success = await streamToGCS(rec, token);
             if (success) {
-                saveStatus(meetingId);
+                saveStatus(recordingId);
                 count++;
             }
         }
