@@ -212,7 +212,7 @@ async function runSync() {
                 saveStatus(recordingId);
                 
                 // Delete from Zoho using the Zoho API URL provided
-                // await deleteFromZoho(recordingId, token);
+                 await deleteFromZoho(recordingId, token);
                 
                 count++;
             }
