@@ -1,0 +1,54 @@
+name: Zoho Recording Sync to GCS
+
+on:
+  schedule:
+    # Runs every 30 minutes
+    - cron: '*/30 * * * *'
+  workflow_dispatch: # Allows manual triggering
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Install ffmpeg (required for M3U8 conversion)
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install dependencies
+        # Install dependencies required by the sync script
+        run: npm install axios @google-cloud/storage
+
+      # Restore status file from previous runs if available
+      - name: Restore status.json cache
+        uses: actions/cache/restore@v4
+        id: cache-status
+        with:
+          path: scripts/status.json
+          key: ${{ runner.os }}-status-v1
+
+      - name: Run Sync Script
+        run: node scripts/sync.js
+        env:
+          ZOHO_CLIENT_ID: ${{ secrets.ZOHO_CLIENT_ID }}
+          ZOHO_CLIENT_SECRET: ${{ secrets.ZOHO_CLIENT_SECRET }}
+          ZOHO_REFRESH_TOKEN: ${{ secrets.ZOHO_REFRESH_TOKEN }}
+          GCP_BUCKET_NAME: ${{ secrets.GCP_BUCKET_NAME }}
+          # GCP_SERVICE_ACCOUNT_KEY should be the raw JSON content of the service account key file
+          GCP_SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+
+      # Save status file for next run
+      - name: Save status.json cache
+        uses: actions/cache/save@v4
+        if: always() # Ensure cache saves even if the sync step fails partially
+        with:
+          path: scripts/status.json
+          key: ${{ steps.cache-status.outputs.cache-primary-key }}
