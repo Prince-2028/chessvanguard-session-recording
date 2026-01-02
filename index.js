@@ -13,14 +13,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-// Use 8080 as the default port to match common development environments
 const PORT = process.env.PORT || 8080; 
 
-// Middleware to parse JSON bodies (standard for API endpoints)
+// Middleware to parse JSON bodies
 app.use(express.json());
 
-// Serve static files from the Vite build output
-app.use(express.static(path.join(__dirname, 'dist')));
+// --- API Endpoints (Must be defined before static serving/catch-all) ---
 
 // API Endpoint to manually trigger sync
 app.post('/api/sync', async (req, res) => {
@@ -42,6 +40,11 @@ app.post('/api/sync', async (req, res) => {
 app.get('/api/status', (req, res) => {
     res.json(getSyncStatus());
 });
+
+// --- Static File Serving and Catch-all ---
+
+// Serve static files from the Vite build output
+app.use(express.static(path.join(__dirname, 'dist')));
 
 // Catch-all route to serve the React app for client-side routing
 app.get('*', (req, res) => {
