@@ -36,13 +36,23 @@ function initGCP() {
         return false;
     }
     try {
-        const credentials = JSON.parse(GCP_SERVICE_ACCOUNT_KEY);
+        let credentials;
+        // Check if it's a file path or a JSON string
+        if (GCP_SERVICE_ACCOUNT_KEY.endsWith('.json') || fs.existsSync(GCP_SERVICE_ACCOUNT_KEY)) {
+            const keyPath = path.isAbsolute(GCP_SERVICE_ACCOUNT_KEY) 
+                ? GCP_SERVICE_ACCOUNT_KEY 
+                : path.join(__dirname, GCP_SERVICE_ACCOUNT_KEY);
+            credentials = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
+        } else {
+            credentials = JSON.parse(GCP_SERVICE_ACCOUNT_KEY);
+        }
+
         storage = new Storage({
             credentials,
             projectId: credentials.project_id,
         });
         bucket = storage.bucket(GCP_BUCKET_NAME);
-        console.log("✅ [GCP] Storage initialized.");
+        console.log(`✅ [GCP] Storage initialized for bucket: ${GCP_BUCKET_NAME}`);
         return true;
     } catch (e) {
         console.error(`❌ [GCP] Failed to initialize: ${e.message}`);
