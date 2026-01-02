@@ -3,7 +3,7 @@ import { Storage } from '@google-cloud/storage';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { pipeline } from 'stream/promises'; // Added for robust streaming
+import { pipeline } from 'stream/promises';
 
 // Helper to get __dirname equivalent in ES Modules
 const __filename = fileURLToPath(import.meta.url);
@@ -23,13 +23,15 @@ const STATUS_FILE = path.join(__dirname, 'status.json');
 
 // --- Initialization ---
 
-let storage;
-let bucket;
+let storage = null;
+let bucket = null;
 let uploadedRecordings = {};
+let gcpInitializationError = null;
 
 try {
     if (!GCP_BUCKET_NAME || !GCP_SERVICE_ACCOUNT_KEY_JSON) {
-        console.warn("[GCP] GCP environment variables are missing. Sync will not run.");
+        gcpInitializationError = "[GCP] GCP environment variables (BUCKET_NAME or SERVICE_ACCOUNT_KEY) are missing. Sync will not run.";
+        console.warn(gcpInitializationError);
     } else {
         const credentials = JSON.parse(GCP_SERVICE_ACCOUNT_KEY_JSON);
         storage = new Storage({
@@ -37,9 +39,11 @@ try {
             projectId: credentials.project_id,
         });
         bucket = storage.bucket(GCP_BUCKET_NAME);
+        console.log("[GCP] Storage initialized successfully.");
     }
 } catch (e) {
-    console.error("[GCP] Failed to initialize GCP Storage. Ensure GCP_SERVICE_ACCOUNT_KEY is valid JSON.", e.message);
+    gcpInitializationError = `[GCP] Failed to initialize GCP Storage. Ensure GCP_SERVICE_ACCOUNT_KEY is valid JSON: ${e.message}`;
+    console.error(gcpInitializationError);
 }
 
 function loadStatus() {
@@ -160,7 +164,7 @@ let lastRunStatus = {
     timestamp: new Date().toISOString(),
     processedCount: 0,
     totalRecordings: 0,
-    error: null,
+    error: gcpInitializationError, // Initialize with GCP error if present
 };
 
 async function runSync() {
@@ -169,10 +173,9 @@ async function runSync() {
         return lastRunStatus;
     }
 
-    if (!storage || !bucket) {
-        const errorMsg = "GCP Storage is not initialized. Check environment variables.";
-        console.error(`[SyncService] ${errorMsg}`);
-        lastRunStatus = { status: 'Error', timestamp: new Date().toISOString(), processedCount: 0, totalRecordings: 0, error: errorMsg };
+    if (gcpInitializationError) {
+        console.error(`[SyncService] Cannot run sync due to GCP initialization error: ${gcpInitializationError}`);
+        lastRunStatus = { status: 'Error', timestamp: new Date().toISOString(), processedCount: 0, totalRecordings: 0, error: gcpInitializationError };
         return lastRunStatus;
     }
 
